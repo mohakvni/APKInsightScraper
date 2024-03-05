@@ -55,3 +55,4 @@ validators==0.22.0
 watchdog==3.0.0
 websocket-client==1.7.0
 zipp==3.17.0
+SQLAlchemy==latest

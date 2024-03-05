@@ -10,6 +10,9 @@ import subprocess
 import os
 import json
 import concurrent.futures
+import shutil
+from database import APK, APKRepository
+from sqlalchemy.orm import sessionmaker, Mapped, mapped_column
 
 
 @dataclass
@@ -146,55 +149,54 @@ class Analyzer:
 
         return all_uuid_infos
     
-def extract_uuids_from_apk(apk_path: str, jadx_path: str) -> dict[str, List[UUIDInfo]]:
+def extract_uuids_from_apk(apk_path: str, jadx_path: str) -> None:
     """
-    Extract UUIDs from a single APK.
+    Extract UUIDs from a single APK and add them to the SQLite database.
+    Then delete the decompiled APK folder.
 
     Args:
         apk_path (str): Path to the APK file.
         jadx_path (str): Path to the jadx executable.
-
-    Returns:
-        Dict[str, List[UUIDInfo]]: A dictionary with a single key-value pair where the key is the application name
-                                    and the value is the list of UUIDInfo objects extracted from the APK.
     """
+    
+    apk_repo = APKRepository()  # This will now create a new session inside APKRepository
+
     try:
         analyzer = Analyzer(apk_path, jadx_path)
-        uuid_infos = analyzer.match_uuids()
-        app_name = os.path.splitext(os.path.basename(apk_path))[0]
-        return {app_name: [uuid_info.to_dict() for uuid_info in uuid_infos]}
-    except Exception as e:
-        print(f"Failed to extract UUIDs from {apk_path}: {e}")
-        return {}
+        base_path = decompile_apk(analyzer.jadx_path, analyzer.apk_path)
+        uuid_infos = analyzer.match_uuids(base_path=base_path)
 
-def main(apks_directory: str, jadx_path: str, output_json: str):
+        for uuid_info in uuid_infos:
+            apk_repo.insert_apk(
+                app_name=os.path.splitext(os.path.basename(apk_path))[0],
+                uuid=uuid_info.uuid,
+                variable=uuid_info.variable,
+                path=uuid_info.path
+            )
+
+    except Exception as e:
+        print(f"Failed to process {apk_path}: {e}")
+
+    finally:
+        apk_repo.close_session()  # Ensure the session is closed after operations
+        shutil.rmtree(base_path)
+
+def main(apks_directory: str, jadx_path: str):
     """
-    Main function to extract UUIDs from all APKs in a directory and save the results to a JSON file.
+    Main function to extract UUIDs from all APKs in a directory and add them to a SQLite database.
+    Deletes the decompiled APK folders afterwards.
 
     Args:
         apks_directory (str): Directory containing APK files.
         jadx_path (str): Path to the jadx executable.
-        output_json (str): Path to the output JSON file.
     """
     apk_files = [os.path.join(apks_directory, f) for f in os.listdir(apks_directory) if f.endswith('.apk')]
-    global_uuid_info = {}
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {executor.submit(extract_uuids_from_apk, apk, jadx_path): apk for apk in apk_files}
-        for future in concurrent.futures.as_completed(futures):
-            apk_path = futures[future]
-            try:
-                result = future.result()
-                global_uuid_info.update(result)
-            except Exception as exc:
-                print(f'{apk_path} generated an exception: {exc}')
-
-    with open(output_json, 'w', encoding='utf-8') as f:
-        json.dump(global_uuid_info, f, indent=4)
+        futures = [executor.submit(extract_uuids_from_apk, apk, jadx_path) for apk in apk_files]
+        concurrent.futures.wait(futures)  # Wait for all futures to complete
 
 if __name__ == "__main__":
-    # Example usage
     apks_directory = "./apks"
-    jadx_path = "/usr/local/bin/jadx" # Adjust based on the actual jadx build output location
-    output_json = "./output_uuids.json"
-    main(apks_directory, jadx_path, output_json)
+    jadx_path = "/usr/local/bin/jadx"  # Adjust based on the actual jadx build output location
+    main(apks_directory, jadx_path)
