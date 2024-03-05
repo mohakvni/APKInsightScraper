@@ -1,2 +1,3 @@
 apks/
 __pycache__/
+*.db
