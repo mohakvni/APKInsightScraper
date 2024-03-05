@@ -1,48 +1,41 @@
-FROM alpine:3.7
+FROM alpine:latest
 
-### 2. Get Java via the package manager
-RUN apk update \
-&& apk upgrade \
-&& apk add --no-cache bash \
-&& apk add --no-cache --virtual=build-dependencies unzip \
-&& apk add --no-cache curl \
-&& apk add --no-cache openjdk8-jre
+# Install necessary system packages including Python and OpenJDK
+RUN apk update && apk upgrade && \
+    apk add --no-cache bash curl vim git nss openjdk11 python3 python3-dev && \
+    apk add --no-cache build-base linux-headers cmake  # Add this line
+    # Create a Python virtual environment
+RUN python3 -m venv /app/venv
 
-### 3. Get Python, PIP
-RUN apk add --no-cache python3 \
-&& python3 -m ensurepip \
-&& pip3 install --upgrade pip setuptools \
-&& rm -r /usr/lib/python*/ensurepip && \
-if [ ! -e /usr/bin/pip ]; then ln -s pip3 /usr/bin/pip ; fi && \
-if [[ ! -e /usr/bin/python ]]; then ln -sf /usr/bin/python3 /usr/bin/python; fi && \
-rm -r /root/.cache
+# Set JAVA_HOME environment variable for Java 11
+ENV JAVA_HOME="/usr/lib/jvm/java-11-openjdk"
 
-ENV JAVA_HOME="/usr/lib/jvm/java-1.8-openjdk"
+# Activate the virtual environment for subsequent commands
+ENV PATH="/app/venv/bin:$PATH"
 
-### Set the working directory
+# Set the working directory
 WORKDIR /app
 
-### Install Git
-RUN apk add --no-cache git
+# Upgrade pip and setuptools within the virtual environment
+RUN pip install --upgrade pip setuptools
 
-### Clone the jadx repository and build it
-RUN git clone https://github.com/skylot/jadx.git \
-&& cd jadx \
-&& ./gradlew dist
-
-### Add your Python scripts
-ADD apkAnalyzer.py /app
-ADD apkDownloader.py /app
-
-### Add the requirements.txt file
+# Add requirements.txt before installing dependencies
 ADD requirements.txt /app
 
-### Install Python dependencies
+# Install Python dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# After adding your Python scripts
+# Clone the jadx repository and build it
+RUN git clone https://github.com/skylot/jadx.git && \
+    cd jadx && \
+    ./gradlew dist
+
+# Add your Python scripts
+ADD filtered_result.json /app
+ADD apkAnalyzer.py /app
+ADD apkDownload.py /app
 ADD run_scripts.sh /app
 RUN chmod +x /app/run_scripts.sh
-
-# Use CMD to execute the shell script
-CMD ["/app/run_scripts.sh"]
+RUN chmod a+wx /app/apkDownload.py
+RUN chmod a+wx /app/apkAnalyzer.py
+RUN chmod a+wx /app/delete.py
