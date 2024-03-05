@@ -184,7 +184,7 @@ def extract_uuids_from_apk(apk_path: str, jadx_path: str) -> None:
 def main(apks_directory: str, jadx_path: str):
     """
     Main function to extract UUIDs from all APKs in a directory and add them to a SQLite database.
-    Deletes the decompiled APK folders afterwards.
+    Deletes the decompiled APK folders afterwards. Uses a maximum of 15 threads at a time.
 
     Args:
         apks_directory (str): Directory containing APK files.
@@ -192,7 +192,8 @@ def main(apks_directory: str, jadx_path: str):
     """
     apk_files = [os.path.join(apks_directory, f) for f in os.listdir(apks_directory) if f.endswith('.apk')]
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    # Limit the number of worker threads to 15
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
         futures = [executor.submit(extract_uuids_from_apk, apk, jadx_path) for apk in apk_files]
         concurrent.futures.wait(futures)  # Wait for all futures to complete
 
